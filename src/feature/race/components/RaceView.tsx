@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   openf1,
   type Meeting,
@@ -16,6 +18,8 @@ import {
   type Driver as DriverInfo,
   type Lap,
 } from "@/api/openf1";
+import { sortMeetingsAsc } from "@/lib/meetings";
+import { formatTime } from "@/lib/time";
 
 const YEARS = [2026, 2025, 2024, 2023];
 
@@ -62,11 +66,18 @@ function useLoadedTabs() {
 }
 
 export function RaceView() {
-  const [year, setYear] = useState(2025);
+  const searchParams = useSearchParams();
+  const urlMeeting = searchParams.get("meeting");
+  const urlSession = searchParams.get("session");
+  const urlYear = searchParams.get("year");
+  const hasUrlParams = !!(urlMeeting && urlSession);
+
+  const [year, setYear] = useState(() => Number(urlYear ?? 2025));
+  const router = useRouter();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [selectedMeeting, setSelectedMeeting] = useState<string>("");
-  const [selectedSession, setSelectedSession] = useState<string>("");
+  const [selectedMeeting, setSelectedMeeting] = useState(urlMeeting ?? "");
+  const [selectedSession, setSelectedSession] = useState(urlSession ?? "");
   const [drivers, setDrivers] = useState<Map<number, DriverInfo>>(new Map());
   const [activeTab, setActiveTab] = useState<TabKey>("results");
 
@@ -89,11 +100,13 @@ export function RaceView() {
 
   useEffect(() => {
     setMeetings([]);
-    setSelectedMeeting("");
-    setSelectedSession("");
-    openf1.meetings({ year: String(year) }).then((d) =>
-      setMeetings(d.filter((m) => !m.is_cancelled).sort((a, b) => new Date(b.date_start).getTime() - new Date(a.date_start).getTime()))
-    );
+    if (!hasUrlParams) {
+      setSelectedMeeting("");
+      setSelectedSession("");
+    }
+    openf1.meetings({ year: String(year) }).then((d) => {
+      setMeetings(sortMeetingsAsc(d));
+    });
   }, [year]);
 
   useEffect(() => {
@@ -101,7 +114,7 @@ export function RaceView() {
     openf1.sessions({ meeting_key: selectedMeeting }).then((d) =>
       setSessions(d.sort((a, b) => new Date(a.date_start).getTime() - new Date(b.date_start).getTime()))
     );
-    setSelectedSession("");
+    if (!hasUrlParams) setSelectedSession("");
     clearAllData();
   }, [selectedMeeting]);
 
@@ -241,10 +254,20 @@ export function RaceView() {
     preloadedRef.current = true;
   }, [selectedSession]);
 
+  const handleDriverClick = (driverNumber: number) => {
+    const params = new URLSearchParams({
+      session: selectedSession,
+      driver: String(driverNumber),
+      year: String(year),
+    });
+    router.push(`/telemetry?${params.toString()}`);
+  };
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <header className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="mx-auto max-w-7xl px-6 py-4 flex items-center gap-4 flex-wrap">
+          <Link href="/explore" className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors mr-1">← Volver</Link>
           <h1 className="text-lg font-bold text-f1-red">Análisis de Carrera</h1>
           <select
             value={year}
@@ -311,11 +334,11 @@ export function RaceView() {
 
         {selectedSession && activeTab === "results" && (
           initialLoading ? <Skeleton rows={10} cols={5} /> :
-          <ResultsTable results={results} grid={grid} drivers={drivers} />
+          <ResultsTable results={results} grid={grid} drivers={drivers} onDriverClick={handleDriverClick} />
         )}
         {selectedSession && activeTab === "grid" && (
           loadingTab === "grid" ? <Skeleton rows={10} cols={3} /> :
-          <GridTable grid={grid} drivers={drivers} />
+          <GridTable grid={grid} drivers={drivers} onDriverClick={handleDriverClick} />
         )}
         {selectedSession && activeTab === "positions-chart" && (
           loadingTab === "positions-chart" ? <Skeleton rows={8} /> :
@@ -363,7 +386,7 @@ function Skeleton({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
   );
 }
 
-function ResultsTable({ results, grid, drivers }: { results: SessionResult[]; grid: StartingGrid[]; drivers: Map<number, DriverInfo> }) {
+function ResultsTable({ results, grid, drivers, onDriverClick }: { results: SessionResult[]; grid: StartingGrid[]; drivers: Map<number, DriverInfo>; onDriverClick: (dn: number) => void }) {
   if (!results.length) return <p className="text-zinc-500">No hay resultados disponibles.</p>;
   const gridMap = new Map(grid.map((g) => [g.driver_number, g.position]));
 
@@ -380,10 +403,10 @@ function ResultsTable({ results, grid, drivers }: { results: SessionResult[]; gr
         return (
           <div key={r.driver_number} className="grid grid-cols-12 gap-3 px-6 py-3 items-center border-b border-zinc-800/50 last:border-0 hover:bg-zinc-900/50">
             <span className="col-span-1 font-mono font-bold">{r.position}</span>
-            <span className="col-span-4">
+            <button onClick={() => onDriverClick(r.driver_number)} className="col-span-4 text-left hover:text-cyan-400 transition-colors">
               <span className="font-semibold">{d?.full_name ?? `#${r.driver_number}`}</span>
               <span className="block text-xs text-zinc-500">{d?.team_name}</span>
-            </span>
+            </button>
             <span className="col-span-3 text-right font-mono text-sm">{duration != null ? formatTime(duration) : "—"}</span>
             <span className="col-span-2 text-right font-mono text-sm">
               {gridPos ?? "—"}{" "}
@@ -399,7 +422,7 @@ function ResultsTable({ results, grid, drivers }: { results: SessionResult[]; gr
   );
 }
 
-function GridTable({ grid, drivers }: { grid: StartingGrid[]; drivers: Map<number, DriverInfo> }) {
+function GridTable({ grid, drivers, onDriverClick }: { grid: StartingGrid[]; drivers: Map<number, DriverInfo>; onDriverClick: (dn: number) => void }) {
   if (!grid.length) return (
     <div className="rounded-xl border border-zinc-800 p-8 text-center">
       <p className="text-zinc-500">No hay datos de parrilla de salida para esta sesión.</p>
@@ -418,13 +441,13 @@ function GridTable({ grid, drivers }: { grid: StartingGrid[]; drivers: Map<numbe
         return (
           <div key={g.driver_number} className="grid grid-cols-5 gap-4 px-6 py-3 items-center border-b border-zinc-800/50 last:border-0 hover:bg-zinc-900/50">
             <span className="col-span-1 font-mono font-bold">{g.position}</span>
-            <span className="col-span-2">
+            <button onClick={() => onDriverClick(g.driver_number)} className="col-span-2 text-left hover:text-cyan-400 transition-colors">
               <span className="font-semibold">{d?.full_name ?? `#${g.driver_number}`}</span>
               {d?.team_name && <span className="block text-xs text-zinc-500">{d.team_name}</span>}
-            </span>
+            </button>
             <span className="col-span-1 text-right font-mono text-sm">{formatTime(g.lap_duration)}</span>
             <span className="col-span-1 text-right font-mono text-sm">
-              {g.position === 1 ? <span className="text-purple-400">Pole</span> : diff > 0 ? `+${diff.toFixed(3)}` : "—"}
+              {g.position === 1 ? <span className="text-purple-400">Pole</span> : diff > 0 ? `+${diff.toFixed(3)}s` : "—"}
             </span>
           </div>
         );
@@ -761,8 +784,3 @@ function RaceControlSection({ events }: { events: RaceControl[] }) {
   );
 }
 
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = (seconds % 60).toFixed(3);
-  return `${m}:${String(s).padStart(6, "0")}`;
-}

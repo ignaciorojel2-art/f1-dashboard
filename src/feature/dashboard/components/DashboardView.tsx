@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { openf1, type Meeting, type Session, type ChampionshipDriver, type ChampionshipTeam, type Driver as DriverInfo } from "@/api/openf1";
+import { sortMeetingsAsc, findNextMeeting } from "@/lib/meetings";
 
 const YEARS = [2026, 2025, 2024, 2023];
 const SESSION_TYPES: Record<string, string> = {
@@ -29,7 +31,10 @@ export function DashboardView() {
     setSelectedMeeting(null);
     setSessions([]);
     openf1.meetings({ year: String(year) }).then((data) => {
-      setMeetings(data.filter((m) => !m.is_cancelled));
+      const sorted = sortMeetingsAsc(data);
+      setMeetings(sorted);
+      const next = findNextMeeting(data);
+      if (next) setSelectedMeeting(next);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [year]);
@@ -79,8 +84,9 @@ export function DashboardView() {
       <header className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold">F1 Dashboard</h1>
-            <nav className="flex gap-1">
+          <Link href="/explore" className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors mr-2">← Volver</Link>
+          <h1 className="text-xl font-bold">F1 Dashboard</h1>
+          <nav className="flex gap-1">
               {(["calendar", "drivers", "teams"] as const).map((t) => (
                 <button
                   key={t}

@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import { TelemetryView } from "@/feature/telemetry";
 
 export default function TelemetryPage() {
-  return <TelemetryView />;
+  return (
+    <Suspense>
+      <TelemetryView />
+    </Suspense>
+  );
 }

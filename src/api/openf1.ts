@@ -61,6 +61,10 @@ async function fetchApi<T>(endpoint: string, params: Record<string, string> = {}
 
     const res = await fetch(url.toString());
 
+    if (res.status === 404) {
+      return [] as T[];
+    }
+
     if (res.status === 429 || res.status >= 500) {
       if (attempt < 3) {
         const baseDelay = Math.pow(2, attempt) * 1000;
